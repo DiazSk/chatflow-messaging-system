@@ -1,0 +1,52 @@
+# ============================================================
+# ChatFlow Messaging System .gitignore
+# ============================================================
+
+# === OS metadata ===
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# === Secrets / credentials ===
+.env
+.env.*
+scripts/.resolved_ips
+
+# === Maven build artifacts ===
+**/target/
+**/dependency-reduced-pom.xml
+
+# === IDE ===
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# === Heavy test output (keep plans, not outputs) ===
+*.jtl
+*.csv
+*.log
+
+# === JMeter HTML reports (reproducible, 100s of bower files) ===
+**/report-*/
+
+# === Raw automation run directories (backed up locally) ===
+results/automation-*/
+
+# === Backup folders with raw JTLs/logs ===
+results/final-o12-backup/*.jtl
+results/final-o12-backup/*.log
+results/final-o12-backup/report-*/
+results/final-o2-backup/*.jtl
+results/final-o2-backup/*.log
+results/final-o2-backup/report-*/
+
+# ============================================================
+# WHITELIST: Force-add small files you want tracked despite
+# the blanket rules above. Use:
+#   git add -f load-tests/batch_result_*.json
+#   git add -f results/final-o12-backup/*-metrics-*.json
+#   git add -f results/final-o2-backup/*-metrics-*.json
+#   git add -f results/automation-*/a4/*-metrics.json
+#   git add -f load-tests/results-test3-endurance-*/final-*.json
+# ============================================================
