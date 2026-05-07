@@ -78,35 +78,35 @@ Each layer kept the previous one's invariants. v3 still uses v2's channel pool a
 
 ### `gateway-server/` — WebSocket entry point and RabbitMQ producer
 
-| Class | Responsibility |
-| --- | --- |
-| `Main` | Boot: reads env config, starts WebSocket server on `WS_PORT` and health endpoint on `WS_PORT+1`. |
-| `ChatServer` | Per-connection handler. Extracts `roomId` from the URL path, validates against the 5-field schema (userId 1–100k, username 3–20 alnum, message 1–500 chars, ISO-8601 timestamp, messageType ∈ {TEXT, JOIN, LEAVE}), enriches with `messageId` (UUID), `serverId`, `clientIp`. |
-| `RabbitMQPublisher` | Declares `chat.exchange` (topic, durable) + `room.{1..20}`. Publishes with routing key `room.{roomId}` using async confirms (no per-message `waitForConfirms()` — that path was a 7.3× throughput regression). |
-| `ChannelPool` | Thread-safe pool of 10 pre-created channels named `gateway-server-producer`. Avoids per-message channel creation cost. |
-| `CircuitBreaker` | Trip threshold 5 failures → OPEN, 15 s reset. Fast-fails publish attempts while broker is unavailable. |
-| `ChatMessage`, `QueueMessage`, `ServerResponse` | Gson POJOs for incoming wire format, enriched broker payload, and outgoing client response. |
+| Class                                           | Responsibility                                                                                                                                                                                                                                                                |
+|-------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Main`                                          | Boot: reads env config, starts WebSocket server on `WS_PORT` and health endpoint on `WS_PORT+1`.                                                                                                                                                                              |
+| `ChatServer`                                    | Per-connection handler. Extracts `roomId` from the URL path, validates against the 5-field schema (userId 1–100k, username 3–20 alnum, message 1–500 chars, ISO-8601 timestamp, messageType ∈ {TEXT, JOIN, LEAVE}), enriches with `messageId` (UUID), `serverId`, `clientIp`. |
+| `RabbitMQPublisher`                             | Declares `chat.exchange` (topic, durable) + `room.{1..20}`. Publishes with routing key `room.{roomId}` using async confirms (no per-message `waitForConfirms()` — that path was a 7.3× throughput regression).                                                                |
+| `ChannelPool`                                   | Thread-safe pool of 10 pre-created channels named `gateway-server-producer`. Avoids per-message channel creation cost.                                                                                                                                                        |
+| `CircuitBreaker`                                | Trip threshold 5 failures → OPEN, 15 s reset. Fast-fails publish attempts while broker is unavailable.                                                                                                                                                                        |
+| `ChatMessage`, `QueueMessage`, `ServerResponse` | Gson POJOs for incoming wire format, enriched broker payload, and outgoing client response.                                                                                                                                                                                   |
 
 **Stateless by design.** Any gateway instance can serve any room — the ALB's sticky cookie is an optimization for connection reuse, not a correctness requirement.
 
 ### `message-processor/` — Consumer pool, write-behind, broadcast, metrics
 
-| Class | Responsibility |
-| --- | --- |
-| `ConsumerMain` | Boot: parses `PROFILE` flags (`-Dredis.host`, `-Dsummary.tables`), wires the pipeline, exposes shutdown hook for in-flight drain. |
-| `MessageConsumerPool` | 4 multiplexed AMQP connections (`message-processor-pool-{0..3}`), each owning 5 of the 20 room queues. Prefetch=100. Forwards raw JSON bytes (no deserialize→re-serialize). Batch ACKs every 50 messages via `multiple=true` (50× fewer AMQP round-trips). |
-| `WriteBuffer` | `LinkedBlockingQueue<QueueMessage>` of capacity 500K. Producers (consumer threads) push; the database writers pop. Decouples broker drain rate from disk write rate. |
-| `DatabaseWriter` | 3 threads. **Adaptive batch sizing**: queue depth < 5K → 500-row batches; 5K–15K → 2K rows; > 15K → 3K rows. Uses `take()` (blocking) for the first message of a batch to avoid busy-wait CPU lockup, then `drainTo()` for the rest. |
-| `DatabaseManager` | Two HikariCP pools — writer (10 connections) and reader (20, `readOnly=true`). On circuit-breaker state transitions, calls `softEvictConnections()` on the writer pool to drop stale connections. |
-| `BroadcastServer` | Java-WebSocket fan-out. After RabbitMQ delivery, broadcasts the raw JSON to every session subscribed to that `roomId`. |
-| `RoomManager` | Tracks which `WebSocket` sessions are joined to which `roomId`. |
-| `MetricsAPI` | REST on :9091 with 11 endpoints: queue depth, write-buffer fill, batch latency histogram, cache hit-rate, top users (cursor-paginated), recent room messages, dead-letter count, etc. Cursor pagination uses `WHERE timestamp < ?` instead of `LIMIT/OFFSET` and bypasses the cache to prevent key explosion. |
-| `QueryCache` | L1 cache. `ConcurrentHashMap` keyed by query+params with TTL 5–60s depending on endpoint. Exposes `getKnownKeysWithPrefix()` so the writer can target Redis `DEL` precisely on commit. |
-| `RedisCacheAdapter` | L2 cache via Jedis. `SETEX` on miss, `DEL`/`deleteBatch` on invalidate. Wraps every call in try/catch — on Redis failure, returns "miss" rather than throwing. Fail-open by design. |
-| `StampedeGuard` | Per-key `ReentrantLock` with `tryLock(3s)`. After cache invalidation, the first reader takes the lock, executes the DB query, and refills the cache; concurrent readers on the same key wait for the result. Prevents thundering-herd DB load on hot keys. |
-| `CircuitBreaker` | Writer-pool guardrail. 5 failures → OPEN, 15 s reset. On state change, evicts the writer pool to clear stale connections. The reader pool is untouched, so the read path keeps serving. |
-| `BatchResult` | Honest metric. Distinguishes **attempted** (rows submitted), **inserted** (rows persisted), and **duplicates** (rows skipped by `INSERT IGNORE`). Avoids reporting a duplicate-heavy run as "failed". |
-| `StatsAggregator` | Periodically rolls up consumer lag (`now - message.timestamp`), batch latency, cache hit rate, queue depth into the metrics endpoints. Logs scaling recommendations every 10 s. |
+| Class                 | Responsibility                                                                                                                                                                                                                                                                                                |
+|-----------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `ConsumerMain`        | Boot: parses `PROFILE` flags (`-Dredis.host`, `-Dsummary.tables`), wires the pipeline, exposes shutdown hook for in-flight drain.                                                                                                                                                                             |
+| `MessageConsumerPool` | 4 multiplexed AMQP connections (`message-processor-pool-{0..3}`), each owning 5 of the 20 room queues. Prefetch=100. Forwards raw JSON bytes (no deserialize→re-serialize). Batch ACKs every 50 messages via `multiple=true` (50× fewer AMQP round-trips).                                                    |
+| `WriteBuffer`         | `LinkedBlockingQueue<QueueMessage>` of capacity 500K. Producers (consumer threads) push; the database writers pop. Decouples broker drain rate from disk write rate.                                                                                                                                          |
+| `DatabaseWriter`      | 3 threads. **Adaptive batch sizing**: queue depth < 5K → 500-row batches; 5K–15K → 2K rows; > 15K → 3K rows. Uses `take()` (blocking) for the first message of a batch to avoid busy-wait CPU lockup, then `drainTo()` for the rest.                                                                          |
+| `DatabaseManager`     | Two HikariCP pools — writer (10 connections) and reader (20, `readOnly=true`). On circuit-breaker state transitions, calls `softEvictConnections()` on the writer pool to drop stale connections.                                                                                                             |
+| `BroadcastServer`     | Java-WebSocket fan-out. After RabbitMQ delivery, broadcasts the raw JSON to every session subscribed to that `roomId`.                                                                                                                                                                                        |
+| `RoomManager`         | Tracks which `WebSocket` sessions are joined to which `roomId`.                                                                                                                                                                                                                                               |
+| `MetricsAPI`          | REST on :9091 with 11 endpoints: queue depth, write-buffer fill, batch latency histogram, cache hit-rate, top users (cursor-paginated), recent room messages, dead-letter count, etc. Cursor pagination uses `WHERE timestamp < ?` instead of `LIMIT/OFFSET` and bypasses the cache to prevent key explosion. |
+| `QueryCache`          | L1 cache. `ConcurrentHashMap` keyed by query+params with TTL 5–60s depending on endpoint. Exposes `getKnownKeysWithPrefix()` so the writer can target Redis `DEL` precisely on commit.                                                                                                                        |
+| `RedisCacheAdapter`   | L2 cache via Jedis. `SETEX` on miss, `DEL`/`deleteBatch` on invalidate. Wraps every call in try/catch — on Redis failure, returns "miss" rather than throwing. Fail-open by design.                                                                                                                           |
+| `StampedeGuard`       | Per-key `ReentrantLock` with `tryLock(3s)`. After cache invalidation, the first reader takes the lock, executes the DB query, and refills the cache; concurrent readers on the same key wait for the result. Prevents thundering-herd DB load on hot keys.                                                    |
+| `CircuitBreaker`      | Writer-pool guardrail. 5 failures → OPEN, 15 s reset. On state change, evicts the writer pool to clear stale connections. The reader pool is untouched, so the read path keeps serving.                                                                                                                       |
+| `BatchResult`         | Honest metric. Distinguishes **attempted** (rows submitted), **inserted** (rows persisted), and **duplicates** (rows skipped by `INSERT IGNORE`). Avoids reporting a duplicate-heavy run as "failed".                                                                                                         |
+| `StatsAggregator`     | Periodically rolls up consumer lag (`now - message.timestamp`), batch latency, cache hit rate, queue depth into the metrics endpoints. Logs scaling recommendations every 10 s.                                                                                                                               |
 
 ### `database/` — Schema and provisioning
 
@@ -170,12 +170,12 @@ Decoupled from persistence. The consumer ACKs and broadcasts before the row is i
 
 ## Data Model
 
-| Table | Purpose | Key columns | Notes |
-| --- | --- | --- | --- |
-| `messages` | Append-only chat log. | `message_id` CHAR(36) PK (UUID), `room_id` INT, `user_id` INT, `username` VARCHAR(20), `message` VARCHAR(500), `message_type` ENUM, `timestamp` DATETIME(3), `server_id` VARCHAR(64) | Indexed on `(room_id, timestamp)` for cursor pagination and `(user_id, timestamp)` for user history. UUID PK enables `INSERT IGNORE` for idempotent at-least-once writes. |
-| `dead_letter_messages` | Failed-write audit. | `message_id`, `error_reason`, `retry_count`, `original_json`, `failed_at` | Populated when a batch fails after circuit-breaker exhaustion. Replay tooling reads from here, re-enqueues, and increments `retry_count`. |
-| `user_message_summary` | Pre-aggregated user stats. | `user_id` PK, `total_messages` BIGINT, `last_active` DATETIME(3) | Maintained via `INSERT … ON DUPLICATE KEY UPDATE total_messages = total_messages + VALUES(total_messages)` per batch. Turns a 18 M-row `GROUP BY user_id` into an O(1) PK lookup. Trade-off: row-lock contention under bulk writes (observed ~13 min into the 60 min E1 endurance run with profile O2 alone — combining with O1 / Redis amortizes the contention). |
-| `room_message_summary` | Pre-aggregated room stats. | `room_id` PK, `total_messages`, `last_active` | Same pattern as `user_message_summary`. |
+| Table                  | Purpose                    | Key columns                                                                                                                                                                          | Notes                                                                                                                                                                                                                                                                                                                                                              |
+|------------------------|----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `messages`             | Append-only chat log.      | `message_id` CHAR(36) PK (UUID), `room_id` INT, `user_id` INT, `username` VARCHAR(20), `message` VARCHAR(500), `message_type` ENUM, `timestamp` DATETIME(3), `server_id` VARCHAR(64) | Indexed on `(room_id, timestamp)` for cursor pagination and `(user_id, timestamp)` for user history. UUID PK enables `INSERT IGNORE` for idempotent at-least-once writes.                                                                                                                                                                                          |
+| `dead_letter_messages` | Failed-write audit.        | `message_id`, `error_reason`, `retry_count`, `original_json`, `failed_at`                                                                                                            | Populated when a batch fails after circuit-breaker exhaustion. Replay tooling reads from here, re-enqueues, and increments `retry_count`.                                                                                                                                                                                                                          |
+| `user_message_summary` | Pre-aggregated user stats. | `user_id` PK, `total_messages` BIGINT, `last_active` DATETIME(3)                                                                                                                     | Maintained via `INSERT … ON DUPLICATE KEY UPDATE total_messages = total_messages + VALUES(total_messages)` per batch. Turns a 18 M-row `GROUP BY user_id` into an O(1) PK lookup. Trade-off: row-lock contention under bulk writes (observed ~13 min into the 60 min E1 endurance run with profile O2 alone — combining with O1 / Redis amortizes the contention). |
+| `room_message_summary` | Pre-aggregated room stats. | `room_id` PK, `total_messages`, `last_active`                                                                                                                                        | Same pattern as `user_message_summary`.                                                                                                                                                                                                                                                                                                                            |
 
 **Write tuning:**
 - `INSERT IGNORE` + UUID PK → duplicates from at-least-once delivery silently dropped.
@@ -189,57 +189,65 @@ Decoupled from persistence. The consumer ACKs and broadcasts before the row is i
 
 ## Resilience
 
-| Pattern | Implementation | Guarantee |
-| --- | --- | --- |
-| Circuit breaker | `CircuitBreaker.java`, both modules | 5 consecutive failures → OPEN for 15 s → HALF_OPEN probe → CLOSED on success. On state transition, the writer-pool variant calls `softEvictConnections()` to drop stale connections. |
-| Dead-letter queue | `dead_letter_messages` table | Failed batch rows persist with original JSON. Replay tool re-enqueues to RabbitMQ. |
-| Idempotent writes | UUID PK + `INSERT IGNORE` | At-least-once delivery → exactly-once persistence. Tested by replaying duplicate batches. |
-| Cache stampede guard | `StampedeGuard.java` | At most 1 DB query per key per invalidation cycle, regardless of concurrent reader count. |
-| Split connection pools | HikariCP writer (10) + reader (20, `readOnly`) | Read path is unaffected by writer-side circuit-breaker trips. |
-| Fail-open Redis | `RedisCacheAdapter.java` | Redis exception → treated as cache miss → falls through to MySQL. Never propagates a 5xx. |
-| Active invalidation | `Redis DEL` on batch commit | Bounds stale-read window to (commit latency + L1 TTL), independent of L2 TTL. |
-| Adaptive batch sizing | `DatabaseWriter` queue-depth lookup | Avoids both small-batch overhead at low load and large-batch latency spikes during burst. |
+| Pattern                | Implementation                                 | Guarantee                                                                                                                                                                            |
+|------------------------|------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Circuit breaker        | `CircuitBreaker.java`, both modules            | 5 consecutive failures → OPEN for 15 s → HALF_OPEN probe → CLOSED on success. On state transition, the writer-pool variant calls `softEvictConnections()` to drop stale connections. |
+| Dead-letter queue      | `dead_letter_messages` table                   | Failed batch rows persist with original JSON. Replay tool re-enqueues to RabbitMQ.                                                                                                   |
+| Idempotent writes      | UUID PK + `INSERT IGNORE`                      | At-least-once delivery → exactly-once persistence. Tested by replaying duplicate batches.                                                                                            |
+| Cache stampede guard   | `StampedeGuard.java`                           | At most 1 DB query per key per invalidation cycle, regardless of concurrent reader count.                                                                                            |
+| Split connection pools | HikariCP writer (10) + reader (20, `readOnly`) | Read path is unaffected by writer-side circuit-breaker trips.                                                                                                                        |
+| Fail-open Redis        | `RedisCacheAdapter.java`                       | Redis exception → treated as cache miss → falls through to MySQL. Never propagates a 5xx.                                                                                            |
+| Active invalidation    | `Redis DEL` on batch commit                    | Bounds stale-read window to (commit latency + L1 TTL), independent of L2 TTL.                                                                                                        |
+| Adaptive batch sizing  | `DatabaseWriter` queue-depth lookup            | Avoids both small-batch overhead at low load and large-batch latency spikes during burst.                                                                                            |
 
 ## Performance Characteristics
 
 ### Write-only baseline (custom Java client, 32 threads)
 
-| Test | Messages | Throughput | Persistence | Notes |
-| --- | --- | --- | --- | --- |
-| Baseline | 500,000 | 19,687 msg/s | 100 % | Steady state, batch latency ~36 ms |
-| Stress | 1,000,000 | 21,091 msg/s | 99.98 % | 232 dropped from client resource exhaustion at the 51 s mark |
-| Endurance | 5 × 500,000 | 20,521 msg/s avg | 100 % | Batch latency drift: R1=35.6 ms, R5=432.1 ms (InnoDB index maintenance scaling) |
+| Test      | Messages    | Throughput       | Persistence | Notes                                                                           |
+|-----------|-------------|------------------|-------------|---------------------------------------------------------------------------------|
+| Baseline  | 500,000     | 19,687 msg/s     | 100 %       | Steady state, batch latency ~36 ms                                              |
+| Stress    | 1,000,000   | 21,091 msg/s     | 99.98 %     | 232 dropped from client resource exhaustion at the 51 s mark                    |
+| Endurance | 5 × 500,000 | 20,521 msg/s avg | 100 %       | Batch latency drift: R1=35.6 ms, R5=432.1 ms (InnoDB index maintenance scaling) |
+
+![1M-message stress test throughput](assets/images/stress-test-1M-throughput.png)
 
 ### Mixed read/write (JMeter, 70/30)
 
-| Scenario | Profile | Samples | RPS | Avg latency | Notes |
-| --- | --- | --- | --- | --- | --- |
-| S2 — 30 min, 500 threads | B0 | 18,304,635 | 10,158 | 37 ms | Baseline; tail driven by 15 s `GROUP BY` spikes |
-| S2 — 30 min, 500 threads | O2 | 19,866,386 | 11,021 | 32 ms | Summary tables eliminate the GROUP BY |
-| S2 — 30 min, 500 threads | O12 | 17,898,138 | 9,930 | 37 ms | Combined Redis + summary; lower RPS than O2 alone but lower variance |
-| E1 — 60 min, 50 threads | B0 | 112,547 | 52 | 949 ms | 5.77 % errors, periodic 15 s timeout spikes |
-| E1 — 60 min, 50 threads | O2 | 48,478 | 13.5 | 3,718 ms | 19.47 % errors, summary-table row-lock contention at ~13 min |
-| E1 — 60 min, 50 threads | O12 | 120,311 | 33 | 1,495 ms | 9.41 % errors, **survived full hour** — best resilience |
+| Scenario                 | Profile | Samples    | RPS    | Avg latency | Notes                                                                |
+|--------------------------|---------|------------|--------|-------------|----------------------------------------------------------------------|
+| S2 — 30 min, 500 threads | B0      | 18,304,635 | 10,158 | 37 ms       | Baseline; tail driven by 15 s `GROUP BY` spikes                      |
+| S2 — 30 min, 500 threads | O2      | 19,866,386 | 11,021 | 32 ms       | Summary tables eliminate the GROUP BY                                |
+| S2 — 30 min, 500 threads | O12     | 17,898,138 | 9,930  | 37 ms       | Combined Redis + summary; lower RPS than O2 alone but lower variance |
+| E1 — 60 min, 50 threads  | B0      | 112,547    | 52     | 949 ms      | 5.77 % errors, periodic 15 s timeout spikes                          |
+| E1 — 60 min, 50 threads  | O2      | 48,478     | 13.5   | 3,718 ms    | 19.47 % errors, summary-table row-lock contention at ~13 min         |
+| E1 — 60 min, 50 threads  | O12     | 120,311    | 33     | 1,495 ms    | 9.41 % errors, **survived full hour** — best resilience              |
+
+![60-minute endurance throughput](assets/images/endurance-throughput-60min.png)
+
+![API latency distribution under sustained load](assets/images/api-latency-distribution.png)
 
 ### Core read queries at 1 M rows
 
-| Query | Target | Measured |
-| --- | --- | --- |
-| Q1 — Recent room messages | < 100 ms | 13 ms |
-| Q2 — User message history | < 200 ms | 2 ms |
-| Q3 — Active users (last 5 min) | < 500 ms | < 1 ms |
-| Q4 — Rooms a user has joined | < 50 ms | 2 ms |
+| Query                          | Target   | Measured |
+|--------------------------------|----------|----------|
+| Q1 — Recent room messages      | < 100 ms | 13 ms    |
+| Q2 — User message history      | < 200 ms | 2 ms     |
+| Q3 — Active users (last 5 min) | < 500 ms | < 1 ms   |
+| Q4 — Rooms a user has joined   | < 50 ms  | 2 ms     |
+
+![Database query performance at 1M rows](assets/images/database-query-performance.png)
 
 ## Operations
 
 **Profiles** (set via `PROFILE=` env var, expanded by `run-message-processor.sh` into JVM flags):
 
-| Profile | Flags | What's active | When to use |
-| --- | --- | --- | --- |
-| B0 | none | Direct MySQL, no caching | Baseline / debugging |
-| O1 | `-Dredis.host=…` | L1 + L2 cache + active invalidation | Read-heavy mix, latency-sensitive |
-| O2 | `-Dsummary.tables=true` | Pre-aggregated summary tables | Analytics-heavy reads, short bursts |
-| O12 | both | Combined | Production default — best long-run resilience |
+| Profile | Flags                   | What's active                       | When to use                                   |
+|---------|-------------------------|-------------------------------------|-----------------------------------------------|
+| B0      | none                    | Direct MySQL, no caching            | Baseline / debugging                          |
+| O1      | `-Dredis.host=…`        | L1 + L2 cache + active invalidation | Read-heavy mix, latency-sensitive             |
+| O2      | `-Dsummary.tables=true` | Pre-aggregated summary tables       | Analytics-heavy reads, short bursts           |
+| O12     | both                    | Combined                            | Production default — best long-run resilience |
 
 **Scaling axes:**
 - Gateway: stateless, scale by adding ALB targets. Single t3.micro caps at ~17 k msg/s on its own.
@@ -257,5 +265,7 @@ Decoupled from persistence. The consumer ACKs and broadcasts before the row is i
 | MySQL | t3.small | InnoDB, 1 GB buffer pool, T3 Unlimited |
 | Redis | t3.micro | L2 cache, fail-open |
 | client | t3.small | JMeter / custom load test driver |
+
+![AWS production topology](assets/images/aws-production-topology.png)
 
 All in `us-west-2b`, Amazon Linux 2023, Java Corretto 11, MySQL 8.x, RabbitMQ 4.x, Redis 7.x.
