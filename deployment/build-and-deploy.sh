@@ -132,9 +132,9 @@ verify_stack() {
         echo ""
         echo "--- MySQL (schema check) ---"
         if ssh "${ssh_opts[@]}" "ec2-user@${mysql_ip}" \
-                "mysql -u chatflow -p'ChatFlow@2026' chatflow -e 'SHOW TABLES;'"; then
+                "mysql -u chatflow -p'<DB_PASSWORD>' chatflow -e 'SHOW TABLES;'"; then
             ssh "${ssh_opts[@]}" "ec2-user@${mysql_ip}" \
-                "mysql -u chatflow -p'ChatFlow@2026' chatflow -N -e 'SELECT COUNT(*) AS messages FROM messages;'"
+                "mysql -u chatflow -p'<DB_PASSWORD>' chatflow -N -e 'SELECT COUNT(*) AS messages FROM messages;'"
         else
             echo "SKIP/FAIL: cannot SSH to MySQL host or query failed (check SG rules)."
         fi
@@ -150,7 +150,7 @@ verify_stack() {
 
     if [[ -n "$mysql_priv" ]]; then
         ssh "${ssh_opts[@]}" "ec2-user@${consumer_ip}" \
-            "mysql -u chatflow -p'ChatFlow@2026' -h ${mysql_priv} chatflow -e 'SELECT 1 AS ok;'" \
+            "mysql -u chatflow -p'<DB_PASSWORD>' -h ${mysql_priv} chatflow -e 'SELECT 1 AS ok;'" \
             || echo "FAIL MySQL from consumer (check SG 3306 from VPC CIDR; FLUSH HOSTS if ERROR 1129)"
     fi
 

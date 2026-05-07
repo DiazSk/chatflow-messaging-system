@@ -52,7 +52,7 @@ require_client_jar() {
 reset_local_db() {
     if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -q '^chatflow-mysql$'; then
         log "Resetting local docker chatflow-mysql..."
-        docker exec chatflow-mysql mysql -uchatflow -pChatFlow@2026 chatflow \
+        docker exec chatflow-mysql mysql -uchatflow -p"${DB_PASS:-<DB_PASSWORD>}" chatflow \
             -e "TRUNCATE TABLE messages; TRUNCATE TABLE dead_letter_messages;" 2>/dev/null || true
     fi
 }
@@ -161,9 +161,9 @@ run_batch_experiment() {
     : "${CONSUMER_PUBLIC_IP:?CONSUMER_PUBLIC_IP env var required}"
     : "${CLIENT_PUBLIC_IP:?CLIENT_PUBLIC_IP env var required}"
 
-    local alb_host="${ALB_HOST:-chatflow-alb-1805851036.us-west-2.elb.amazonaws.com}"
+    local alb_host="${ALB_HOST:-<ALB_DNS>}"
     local alb_uri="ws://${alb_host}:8080/chat/"
-    local consumer_private_ip="${CONSUMER_PRIVATE_IP:-172.31.19.61}"
+    local consumer_private_ip="${CONSUMER_PRIVATE_IP:-<CONSUMER_PRIVATE_IP>}"
     local sample_messages="${SAMPLE_MESSAGES:-100000}"
     local batch_sizes=(${BATCH_SIZES:-100 500 1000 5000})
 
@@ -178,15 +178,15 @@ run_batch_experiment() {
         log "--- WRITE_BATCH_SIZE=$batch ---"
 
         ssh -i "$KEY" "ec2-user@${MYSQL_PUBLIC_IP}" \
-            "mysql -u chatflow -p'ChatFlow@2026' chatflow -e 'TRUNCATE TABLE messages; TRUNCATE TABLE dead_letter_messages;'"
+            "mysql -u chatflow -p'<DB_PASSWORD>' chatflow -e 'TRUNCATE TABLE messages; TRUNCATE TABLE dead_letter_messages;'"
 
         # bash -s + heredoc avoids pkill matching the SSH shell's own argv.
         ssh -i "$KEY" "ec2-user@${CONSUMER_PUBLIC_IP}" bash -s -- "$batch" <<'REMOTE'
 BATCH="$1"
 pkill -f message-processor.jar || true
 sleep 3
-export RABBITMQ_HOST=172.31.29.217 RABBITMQ_USER=admin RABBITMQ_PASS=password123
-export DB_HOST=172.31.24.182 DB_USER=chatflow DB_PASS='ChatFlow@2026' DB_NAME=chatflow
+export RABBITMQ_HOST=<RABBITMQ_PRIVATE_IP> RABBITMQ_USER=<RABBITMQ_USER> RABBITMQ_PASS=<RABBITMQ_PASSWORD>
+export DB_HOST=<MYSQL_PRIVATE_IP> DB_USER=chatflow DB_PASS='<DB_PASSWORD>' DB_NAME=chatflow
 export DB_POOL_SIZE=15 WRITE_BUFFER_CAPACITY=1500000 WRITE_BATCH_SIZE="$BATCH"
 export WRITER_THREADS=5 CONSUMER_THREADS=4 PREFETCH_COUNT=100
 nohup java -Xmx512m -Xms256m -XX:+UseG1GC -jar ~/message-processor.jar \

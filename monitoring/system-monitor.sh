@@ -13,7 +13,7 @@
 #   CONSUMER_PORT  metrics API port (default: 9091)
 #   DB_HOST        MySQL host (default: localhost)
 #   DB_USER        MySQL user (default: chatflow)
-#   DB_PASS        MySQL password (default: ChatFlow@2026)
+#   DB_PASS        MySQL password (default: <DB_PASSWORD>)
 #   DB_NAME        MySQL database (default: chatflow)
 # ============================================================================
 
@@ -26,7 +26,7 @@ METRICS_URL="http://${CONSUMER_HOST}:${CONSUMER_PORT}"
 
 DB_HOST="${DB_HOST:-localhost}"
 DB_USER="${DB_USER:-chatflow}"
-DB_PASS="${DB_PASS:-ChatFlow@2026}"
+DB_PASS="${DB_PASS:-<DB_PASSWORD>}"
 DB_NAME="${DB_NAME:-chatflow}"
 
 trap 'tput cnorm 2>/dev/null || true; echo; exit 0' INT TERM
