@@ -37,7 +37,7 @@ public class MessageConsumerPool {
     private final StatsAggregator statsAggregator;
     private final Gson gson = new Gson();
 
-    private Connection connection;
+    private Connection[] multiplexedConnections;
     private final List<Channel> channels = new ArrayList<>();
     private final int numConsumerThreads;
 
@@ -76,7 +76,7 @@ public class MessageConsumerPool {
         factory.setRequestedHeartbeat(30);
 
         // Create 4 Multiplexed Connections for maximum Erlang process distribution
-        Connection[] multiplexedConnections = new Connection[4];
+        multiplexedConnections = new Connection[4];
         for (int i = 0; i < 4; i++) {
             multiplexedConnections[i] = factory.newConnection("message-processor-pool-" + i);
         }
@@ -87,7 +87,7 @@ public class MessageConsumerPool {
             List<Integer> assignedRooms = roomAssignments.get(t);
 
             Connection threadConnection = multiplexedConnections[t % 4];
-            Channel channel = connection.createChannel();
+            Channel channel = threadConnection.createChannel();
             channel.basicQos(prefetchCount);
             channels.add(channel);
 
@@ -97,7 +97,7 @@ public class MessageConsumerPool {
                 try {
                     channel.queueDeclarePassive(queueName);
                 } catch (IOException e) {
-                    channel = connection.createChannel();
+                    channel = threadConnection.createChannel();
                     channel.basicQos(prefetchCount);
                     channels.set(t, channel);
 
@@ -265,9 +265,13 @@ public class MessageConsumerPool {
         if (scalingMonitor != null) {
             scalingMonitor.shutdownNow();
         }
-        try {
-            if (connection != null) connection.close();
-        } catch (Exception ignored) {}
+        if (multiplexedConnections != null) {
+            for (Connection conn : multiplexedConnections) {
+                try {
+                    if (conn != null) conn.close();
+                } catch (Exception ignored) {}
+            }
+        }
 
         System.out.println("MessageConsumerPool shut down. Consumed: " + messagesConsumed.get()
                 + ", Errors: " + consumeErrors.get()

@@ -80,13 +80,13 @@ Pass -Jconsumer.host=&lt;EC2-IP&gt; -Jalb.host=&lt;ALB-DNS&gt; on the JMeter com
                 <elementProp name="start" elementType="HTTPArgument">
                   <boolProp name="HTTPArgument.always_encode">false</boolProp>
                   <stringProp name="Argument.name">start</stringProp>
-                  <stringProp name="Argument.value">2020-01-01 00:00:00</stringProp>
+                  <stringProp name="Argument.value">2020-01-01%2000:00:00</stringProp>
                   <stringProp name="Argument.metadata">=</stringProp>
                 </elementProp>
                 <elementProp name="end" elementType="HTTPArgument">
                   <boolProp name="HTTPArgument.always_encode">false</boolProp>
                   <stringProp name="Argument.name">end</stringProp>
-                  <stringProp name="Argument.value">2030-12-31 23:59:59</stringProp>
+                  <stringProp name="Argument.value">2030-12-31%2023:59:59</stringProp>
                   <stringProp name="Argument.metadata">=</stringProp>
                 </elementProp>
               </collectionProp>
@@ -124,13 +124,13 @@ Pass -Jconsumer.host=&lt;EC2-IP&gt; -Jalb.host=&lt;ALB-DNS&gt; on the JMeter com
                 <elementProp name="start" elementType="HTTPArgument">
                   <boolProp name="HTTPArgument.always_encode">false</boolProp>
                   <stringProp name="Argument.name">start</stringProp>
-                  <stringProp name="Argument.value">2024-01-01 00:00:00</stringProp>
+                  <stringProp name="Argument.value">2024-01-01%2000:00:00</stringProp>
                   <stringProp name="Argument.metadata">=</stringProp>
                 </elementProp>
                 <elementProp name="end" elementType="HTTPArgument">
                   <boolProp name="HTTPArgument.always_encode">false</boolProp>
                   <stringProp name="Argument.name">end</stringProp>
-                  <stringProp name="Argument.value">2030-12-31 23:59:59</stringProp>
+                  <stringProp name="Argument.value">2030-12-31%2023:59:59</stringProp>
                   <stringProp name="Argument.metadata">=</stringProp>
                 </elementProp>
               </collectionProp>
