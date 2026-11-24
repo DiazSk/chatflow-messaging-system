@@ -212,6 +212,20 @@ Decoupled from persistence. The consumer ACKs and broadcasts before the row is i
 
 ![1M-message stress test throughput](assets/images/stress-test-1M-throughput.png)
 
+### Batch-size experiment (local MySQL)
+
+Effective MySQL write rate by batch size, from the CS6650 Assignment 4 submission. Values are approximate, measured on local hardware.
+
+| Batch size | Flush interval | Avg batch time | Effective write rate | Notes |
+|-----------:|---------------:|---------------:|---------------------:|-------|
+| 100        | 100 ms         | 5 ms           | ~2,000 msg/s         | Too many round-trips |
+| 500        | 500 ms         | 12 ms          | ~5,000 msg/s         | Moderate |
+| 1,000      | 500 ms         | 18 ms          | ~8,000 msg/s         | Good balance |
+| 3,000      | 500 ms         | 22 ms          | ~8,500 msg/s         | Production cap on EC2 |
+| 5,000      | 500 ms         | 28 ms          | ~10,000 msg/s        | Local optimum |
+
+Larger batches amortize per-batch overhead (connection acquisition, prepared statement, commit), and `rewriteBatchedStatements=true` turns each batch into one multi-value INSERT, so 100 → 5,000 rows is a ~5× write-rate gain. On EC2 t3.small the Linux OOM killer terminated processes under sustained 5,000-row batches. Production was therefore capped at 3,000, and adaptive sizing picks 500 / 2,000 / 3,000 by queue depth. The code's 5,000 tier was not used in the measured runs.
+
 ### Mixed read/write (JMeter, 70/30)
 
 | Scenario                 | Profile | Samples    | RPS    | Avg latency | Notes                                                                |
